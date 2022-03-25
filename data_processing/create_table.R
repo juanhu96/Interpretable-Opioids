@@ -32,8 +32,6 @@ long_term_yet <- function(pat_id, presc_id){
   }
 }
 
-# PATIENT <- SAMPLE[SAMPLE$patient_id == '228',]
-# PATIENT$long_term <- mapply(long_term_yet, PATIENT$patient_id, PATIENT$prescription_id)
 SAMPLE$long_term_yet <- mapply(long_term_yet, SAMPLE$patient_id, SAMPLE$prescription_id)
 
 ########################################################################
@@ -59,6 +57,9 @@ PATIENT_TABLE$Birth_year <- mapply(function(pat_id){return(SAMPLE[SAMPLE$patient
 PATIENT_TABLE$Zip <- mapply(function(pat_id){return(SAMPLE[SAMPLE$patient_id == pat_id,]$patient_zip[1])}, PATIENT_TABLE$Patient)
 # length(unique(PATIENT_TABLE$Long_term_date)) # 167 out of 13987 patient
 write.csv(PATIENT_TABLE, "../Data/PATIENT_TABLE.csv", row.names = FALSE)
+
+
+
 
 ########################################################################
 ##### Update long term label in prescription table

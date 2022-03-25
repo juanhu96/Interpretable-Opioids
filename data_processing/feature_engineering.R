@@ -1,7 +1,7 @@
 # Feature engineering
 library(dplyr)
-setwd("~/Desktop/Research/Interpretable_Opioid/Code")
-SAMPLE <- read.csv("../Data/SAMPLE_LABELED.csv")
+setwd("~/Desktop/Research/Interpretable_Opioid/Code/data_processing")
+SAMPLE <- read.csv("../../Data/SAMPLE_LABELED.csv")
 # PATIENT <- SAMPLE[SAMPLE$patient_id == '228',]
 sum(SAMPLE$long_term_yet) # 1138
 sum(SAMPLE$long_term_presc) # 2121
@@ -74,7 +74,7 @@ SAMPLE$past_prescription <- mapply(past_presc, SAMPLE$patient_id, SAMPLE$prescri
 # SAMPLE$prescriber_num_pat_long <- prescriber_info[3,]
 
 # Another better way using new PRESCRIBER_TABLE
-PRESCRIBER_TABLE <- read.csv("../Data/PRESCRIBER_TABLE.csv")
+PRESCRIBER_TABLE <- read.csv("../../Data/PRESCRIBER_TABLE.csv")
 merge_prescriber_info_new <- function(pat_id, presc_id){
   PATIENT_PRESC <- SAMPLE[SAMPLE$prescription_id == presc_id,]
   PRESCRIBER_ID <- PATIENT_PRESC$prescriber_id
@@ -135,7 +135,7 @@ SAMPLE$concurrent_opioid <- mapply(compute_concurrent_opioid, SAMPLE$patient_id,
 ##### Benzo Concurrence
 ########################################################################
 
-BENZO_TABLE <- read.csv("../Data/SAMPLE_BENZO.csv")
+BENZO_TABLE <- read.csv("../../Data/SAMPLE_BENZO.csv")
 compute_concurrent_benzo <- function(pat_id, presc_id){
   PATIENT_PRESC_OPIOIDS <- SAMPLE[SAMPLE$prescription_id == presc_id,]
   presc_date <- PATIENT_PRESC_OPIOIDS$date_filled
@@ -167,7 +167,7 @@ SAMPLE$concurrent_benzo <- mapply(compute_concurrent_benzo, SAMPLE$patient_id, S
 ########################################################################
 
 SAMPLE$Age <- SAMPLE$prescription_year - SAMPLE$patient_birth_year
-write.csv(SAMPLE, "../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
+write.csv(SAMPLE, "../../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
 
 ########################################################################
 
@@ -185,14 +185,14 @@ SAMPLE_reorder <- SAMPLE[, c("prescription_id", "patient_id", "patient_birth_yea
                            "past_prescription", "concurrent_opioid", "concurrent_benzo",
                            "long_term_yet", "long_term_presc")]
 
-write.csv(SAMPLE_reorder, "../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
+write.csv(SAMPLE_reorder, "../../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
 
 ########################################################################
 ##### Compute prior information
 ##### Count of prior prescription, total days of supply, total quantity
 ########################################################################
 
-SAMPLE <- read.csv("../Data/SAMPLE_LABEL_FEATURE.csv")
+SAMPLE <- read.csv("../../Data/SAMPLE_LABEL_FEATURE.csv")
 
 compute_prior_info <- function(pat_id, presc_id){
   PATIENT_PRESC <- SAMPLE[SAMPLE$prescription_id == presc_id,]
@@ -224,4 +224,23 @@ SAMPLE$count_prior_days_supply = prior_info[2, ]
 SAMPLE$count_prior_quantity = prior_info[3, ]
 
 # update the table
-write.csv(SAMPLE, "../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
+write.csv(SAMPLE, "../../Data/SAMPLE_LABEL_FEATURE.csv", row.names = FALSE)
+
+########################################################################
+##### Extract naive prescriptions: 
+##### First prescription or no prescription in last 90 days
+########################################################################
+
+# Past_prescription: whether prescription in last 90 days
+SAMPLE_FIRST <- SAMPLE %>% group_by(patient_id) %>% slice(1) # 13987
+SAMPLE_NAIVE <- SAMPLE[SAMPLE$past_prescription == 0, ] # 14897
+write.csv(SAMPLE_NAIVE, "../../Data/SAMPLE_NAIVE_FEATURE.csv", row.names = FALSE)
+
+
+########################################################################
+
+
+PATIENT <- read.csv("../../Data/PATIENT_TABLE.csv")
+PATIENT$long_term_user <- as.integer(!is.na(PATIENT$Long_term_date))
+write.csv(PATIENT, "../../Data/PATIENT_TABLE.csv", row.names = FALSE) 
+  
