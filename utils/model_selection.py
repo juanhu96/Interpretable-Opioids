@@ -6,13 +6,13 @@ Created on Mar 14 2022
 """
 
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import KFold, GridSearchCV
-from sklearn.metrics import roc_auc_score
-# from utils.fairness_functions import compute_confusion_matrix_stats, compute_calibration_fairness, \
-#     conditional_balance_positive_negative, fairness_in_auc, balance_positive_negative
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.metrics import recall_score, precision_score, roc_auc_score,\
+    average_precision_score, brier_score_loss, fbeta_score
 from sklearn.calibration import CalibratedClassifierCV
-
+from imblearn.pipeline import Pipeline
+from imblearn.combine import SMOTETomek
+from imblearn.under_sampling import TomekLinks
 
 
 def nested_cross_validate(X, Y, estimator, c_grid, seed, index = None):
@@ -20,7 +20,7 @@ def nested_cross_validate(X, Y, estimator, c_grid, seed, index = None):
     ## outer cv
     train_outer = []
     test_outer = []
-    outer_cv = KFold(n_splits=5, random_state=seed, shuffle=True)
+    outer_cv = StratifiedKFold(n_splits=5, random_state=seed, shuffle=True)
     
     ## 5 sets of train & test index
     for train, test in outer_cv.split(X, Y):
@@ -37,16 +37,17 @@ def nested_cross_validate(X, Y, estimator, c_grid, seed, index = None):
     holdout_prediction = []
     holdout_probability = []
     holdout_y = []
-    holdout_auc = []
-    
-    confusion_matrix_rets = []
-    calibrations = []
-    race_auc = []
-    condition_pn = []
-    no_condition_pn = []
+    holdout_accuracy = []
+    holdout_recall = []
+    holdout_precision = []
+    holdout_roc_auc = []
+    holdout_pr_auc = []
+    holdout_f1 = []
+    holdout_f2 = []
+    holdout_brier = []
     
     ## inner cv
-    inner_cv = KFold(n_splits=5, shuffle=True, random_state=seed)
+    inner_cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=seed)
     
     for i in range(len(train_outer)):
         
@@ -54,16 +55,20 @@ def nested_cross_validate(X, Y, estimator, c_grid, seed, index = None):
         train_x, test_x = X.iloc[train_outer[i]], X.iloc[test_outer[i]]
         train_y, test_y = Y[train_outer[i]], Y[test_outer[i]]
         
+        
         ## holdout test with "race" for fairness
         holdout_with_attrs = test_x.copy()
-
-        
+      
         ## GridSearch: inner CV
-        clf = GridSearchCV(estimator=estimator, 
+        pipeline = Pipeline(steps=[('sampler', SMOTETomek(tomek=TomekLinks(sampling_strategy='majority'))),
+                                   ('estimator', estimator)])
+        
+        ### Jingyuan: to specify grid on estimator, need to add 'estimator__' 
+        clf = GridSearchCV(estimator=pipeline, 
                            param_grid=c_grid, 
-                           scoring='roc_auc',
+                           scoring='average_precision',
                            cv=inner_cv, 
-                           return_train_score=True).fit(train_x, train_y)
+                           return_train_score=True).fit(train_x, train_y)        
 
         ## best parameter & scores
         mean_train_score = clf.cv_results_['mean_train_score']
@@ -79,116 +84,40 @@ def nested_cross_validate(X, Y, estimator, c_grid, seed, index = None):
             best_model.fit(train_x, train_y)
             prob = best_model.predict_proba(test_x)[:, 1]
             holdout_pred = best_model.predict(test_x)
+            holdout_acc = best_model.score(test_x, test_y)            
         else:
-            #best_model = clf.fit(train_x, train_y)
-            #prob = best_model.predict_proba(test_x)[:, 1]
-            #holdout_pred = best_model.predict(test_x)
             prob = clf.predict_proba(test_x)[:, 1]
             holdout_pred = clf.predict(test_x)
+            holdout_acc = clf.score(test_x, test_y)
         
-        ########################################################################
-        ## confusion matrix stats
-        # confusion_matrix_fairness = compute_confusion_matrix_stats(df=holdout_with_attrs,
-        #                                                            preds=holdout_pred,
-        #                                                            labels=test_y, protected_variables=["sex", "race"])
-        # cf_final = confusion_matrix_fairness.assign(fold_num = [i]*confusion_matrix_fairness['Attribute'].count())
-        # confusion_matrix_rets.append(cf_final)
-        
-        ########################################################################
-        ## calibration
-        # calibration = compute_calibration_fairness(df=holdout_with_attrs, 
-        #                                            probs=prob, 
-        #                                            labels=test_y, 
-        #                                            protected_variables=["sex", "race"])
-        # calibration_final = calibration.assign(fold_num = [i]*calibration['Attribute'].count())
-        # calibrations.append(calibration_final)
-        
-        ########################################################################
-        ## race auc
-        # try:
-        #     race_auc_matrix = fairness_in_auc(df = holdout_with_attrs,
-        #                                       probs = prob, 
-        #                                       labels = test_y)
-        #     race_auc_matrix_final = race_auc_matrix.assign(fold_num = [i]*race_auc_matrix['Attribute'].count())
-        #     race_auc.append(race_auc_matrix_final)
-        # except:
-        #     pass
-        
-        ########################################################################
-        ## ebm_pn
-        # no_condition_pn_matrix = balance_positive_negative(df = holdout_with_attrs,
-        #                                                    probs = prob, 
-        #                                                    labels = test_y)
-        # no_condition_pn_matrix_final = no_condition_pn_matrix.assign(fold_num = [i]*no_condition_pn_matrix['Attribute'].count())
-        # no_condition_pn.append(no_condition_pn_matrix_final)
-        
-        ########################################################################
-        ## ebm_condition_pn
-        # condition_pn_matrix = conditional_balance_positive_negative(df = holdout_with_attrs,
-        #                                                             probs = prob, 
-        #                                                             labels = test_y)
-        # condition_pn_matrix_final = condition_pn_matrix.assign(fold_num = [i]*condition_pn_matrix['Attribute'].count())
-        # condition_pn.append(condition_pn_matrix_final)      
-        
-        ########################################################################
         ## store results
-        holdout_with_attr_test.append(holdout_with_attrs)
+        best_params.append(best_param)
+        # holdout_with_attr_test.append(holdout_with_attrs)
         holdout_probability.append(prob)
         holdout_prediction.append(holdout_pred)
         holdout_y.append(test_y)
-        holdout_auc.append(roc_auc_score(test_y, prob))
-        best_params.append(best_param)
+        holdout_accuracy.append(holdout_acc)
+        holdout_recall.append(recall_score(test_y, holdout_pred))
+        holdout_precision.append(precision_score(test_y, holdout_pred))
+        holdout_roc_auc.append(roc_auc_score(test_y, prob))
+        holdout_pr_auc.append(average_precision_score(test_y, prob))
+        holdout_brier.append(brier_score_loss(test_y, prob))
+        holdout_f1.append(fbeta_score(test_y, holdout_pred, beta = 1))
+        holdout_f2.append(fbeta_score(test_y, holdout_pred, beta = 2))
+        
 
-    ## confusion matrix
-    # confusion_df = pd.concat(confusion_matrix_rets, ignore_index=True)
-    # confusion_df.sort_values(["Attribute", "Attribute Value"], inplace=True)
-    # confusion_df = confusion_df.reset_index(drop=True)
-    
-    ## calibration matrix
-    # calibration_df = pd.concat(calibrations, ignore_index=True)
-    # calibration_df.sort_values(["Attribute", "Lower Limit Score", "Upper Limit Score"], inplace=True)
-    # calibration_df = calibration_df.reset_index(drop=True)
-    
-    ## race_auc
-    # race_auc_df = []
-    # try:
-    #     race_auc_df = pd.concat(race_auc, ignore_index=True)
-    #     race_auc_df.sort_values(["fold_num", "Attribute"], inplace=True)
-    #     race_auc_df = race_auc_df.reset_index(drop=True)
-    # except:
-    #     pass
-    
-    ## no_condition_pn
-    # no_condition_pn_df = pd.concat(no_condition_pn, ignore_index=True)
-    # no_condition_pn_df.sort_values(["fold_num", "Attribute"], inplace=True)
-    # no_condition_pn_df = no_condition_pn_df.reset_index(drop=True)
-    
-    ## condition_pn
-    # condition_pn_df = pd.concat(condition_pn, ignore_index=True)
-    # condition_pn_df.sort_values(["fold_num", "Attribute"], inplace=True)
-    # condition_pn_df = condition_pn_df.reset_index(drop=True)
-    
-    # return {'best_param': best_params,
-    #         'train_auc': train_auc,
-    #         'validation_auc': validation_auc,
-    #         'auc_diffs': auc_diffs,
-    #         'holdout_test_auc': holdout_auc,
-    #         'holdout_with_attrs_test': holdout_with_attr_test,
-    #         'holdout_proba': holdout_probability,
-    #         'holdout_pred': holdout_prediction,
-    #         'holdout_y': holdout_y,
-    #         'confusion_matrix_stats': confusion_df, 
-    #         'calibration_stats': calibration_df, 
-    #         'race_auc': race_auc_df, 
-    #         'condition_pn': condition_pn_df, 
-    #         'no_condition_pn': no_condition_pn_df}
 
     return {'best_param': best_params,
             'train_auc': train_auc,
             'validation_auc': validation_auc,
             'auc_diffs': auc_diffs,
-            'holdout_test_auc': holdout_auc,
-            'holdout_with_attrs_test': holdout_with_attr_test,
-            'holdout_proba': holdout_probability,
-            'holdout_pred': holdout_prediction,
-            'holdout_y': holdout_y}
+            'holdout_test_accuracy': holdout_accuracy,
+            'holdout_test_recall': holdout_recall,
+            "holdout_test_precision": holdout_precision,
+            'holdout_test_roc_auc': holdout_roc_auc,
+            'holdout_test_pr_auc': holdout_pr_auc,
+            "holdout_test_brier": holdout_brier,
+            'holdout_test_f1': holdout_f1,
+            "holdout_test_f2": holdout_f2}
+
+
